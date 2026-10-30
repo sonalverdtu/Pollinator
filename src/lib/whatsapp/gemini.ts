@@ -29,13 +29,18 @@ export interface TextAnalysisResult {
 // Gemini API Caller with Model Fallbacks
 // ============================================================
 
+// Ordered by measured latency (Oct 2026). 2.5/2.0/1.5-flash now return 404 and
+// gemini-flash-latest can take minutes, so they are no longer in the ladder.
 const GEMINI_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-flash-latest',
-  'gemini-1.5-flash',
   'gemini-3.1-flash-lite',
+  'gemini-flash-lite-latest',
+  'gemini-3.5-flash',
 ];
+
+// The WhatsApp worker owns a message for up to 150 s, so a slow model can be
+// given time instead of being cut off; voice notes need longer than text.
+const PER_MODEL_TIMEOUT_MS = 8000;
+const TOTAL_DEADLINE_MS = 20000;
 
 interface GeminiPart {
   text?: string;
@@ -59,7 +64,7 @@ async function callGemini(
   }
 
   let lastError: unknown = null;
-  const deadline = Date.now() + 12000;
+  const deadline = Date.now() + TOTAL_DEADLINE_MS;
 
   for (const model of GEMINI_MODELS) {
     const remaining = deadline - Date.now();
@@ -69,7 +74,7 @@ async function callGemini(
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        signal: AbortSignal.timeout(Math.min(4000, remaining)),
+        signal: AbortSignal.timeout(Math.min(PER_MODEL_TIMEOUT_MS, remaining)),
         body: JSON.stringify({
           contents: [{ parts }],
           generationConfig: {
